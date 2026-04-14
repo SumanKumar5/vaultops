@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS organisations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug VARCHAR(100) UNIQUE NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  plan VARCHAR(20) NOT NULL DEFAULT 'starter',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+); 
