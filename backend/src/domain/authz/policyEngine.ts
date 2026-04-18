@@ -4,6 +4,7 @@ import crypto from "crypto";
 export interface Principal {
   id: string;
   type: "user" | "service_account" | "ci_token";
+  scopedProjects: string[] | null;
 }
 
 export interface Permissions {
@@ -55,6 +56,19 @@ export async function resolvePermissions(
   environment: string,
   keyName: string,
 ): Promise<Permissions> {
+  if (
+    principal.scopedProjects !== null &&
+    principal.scopedProjects.length > 0 &&
+    !principal.scopedProjects.includes(projectId)
+  ) {
+    return {
+      can_read: false,
+      can_write: false,
+      can_delete: false,
+      can_manage_policies: false,
+    };
+  }
+
   const { rows } = await pool.query<PolicyRow>(
     `SELECT can_read, can_write, can_delete, can_manage_policies,
             key_pattern, environments, expires_at
@@ -107,6 +121,7 @@ export async function resolvePrincipalFromToken(
     return {
       id: sa.id,
       type: sa.is_ci_token ? "ci_token" : "service_account",
+      scopedProjects: sa.scoped_projects as string[],
     };
   }
 
@@ -116,7 +131,7 @@ export async function resolvePrincipalFromToken(
   );
 
   if (userRows.length > 0) {
-    return { id: userRows[0].id, type: "user" };
+    return { id: userRows[0].id, type: "user", scopedProjects: null };
   }
 
   return null;

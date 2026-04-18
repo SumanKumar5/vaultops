@@ -1,0 +1,510 @@
+openapi: 3.1.0
+info:
+  title: VaultOps Secrets Engine API
+  version: 1.0.0
+  description: |
+    A production-grade secrets and configuration management API.
+    All endpoints require a Bearer token in the Authorization header.
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    SecretMeta:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        environment: { type: string }
+        key_name: { type: string }
+        version: { type: integer }
+        is_current: { type: boolean }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        rotated_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        tags: { type: array, items: { type: string } }
+
+    SecretWithValue:
+      allOf:
+        - $ref: "#/components/schemas/SecretMeta"
+        - type: object
+          properties:
+            value: { type: string }
+
+    ChangeRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        environment: { type: string }
+        requested_by: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [pending, approved, rejected, applied, expired]
+        changes: { type: array, items: { type: object } }
+        review_note: { type: string, nullable: true }
+        reviewed_by: { type: string, format: uuid, nullable: true }
+        reviewed_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time }
+        applied_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    AuditEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        org_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid, nullable: true }
+        actor_type:
+          { type: string, enum: [user, service_account, ci_token, system] }
+        actor_id: { type: string, format: uuid, nullable: true }
+        actor_ip: { type: string, nullable: true }
+        event_type:
+          type: string
+          enum:
+            [
+              SECRET_READ,
+              SECRET_WRITTEN,
+              SECRET_DELETED,
+              SECRET_ROTATED,
+              POLICY_CHANGED,
+              APPROVAL_REQUESTED,
+              APPROVAL_GRANTED,
+              APPROVAL_DENIED,
+              BULK_EXPORT,
+              ROLLBACK,
+            ]
+        resource_id: { type: string, format: uuid, nullable: true }
+        resource_type: { type: string, nullable: true }
+        metadata: { type: object }
+        occurred_at: { type: string, format: date-time }
+        chain_hash: { type: string }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+paths:
+  /projects/{projectId}/secrets:
+    get:
+      summary: List secrets
+      description: Returns secret metadata for all current secrets in an environment. Values are never returned in list view.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: environment
+          in: query
+          required: true
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: tags
+          in: query
+          schema: { type: string }
+        - name: show_expired
+          in: query
+          schema: { type: string, enum: [true, false] }
+      responses:
+        "200":
+          description: List of secret metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SecretMeta" }
+        "401":
+          {
+            description: Unauthorized,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
+        "403":
+          {
+            description: Forbidden,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
+
+  /projects/{projectId}/secrets/{keyName}:
+    get:
+      summary: Get secret value
+      description: Returns the decrypted value of a secret. This action is logged in the audit trail.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyName
+          in: path
+          required: true
+          schema: { type: string }
+        - name: environment
+          in: query
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Secret with decrypted value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SecretWithValue" }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+
+    put:
+      summary: Write secret
+      description: |
+        Creates or updates a secret. If the environment requires approval,
+        a change request is created (202) instead of writing directly (200).
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyName
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment, value]
+              properties:
+                environment: { type: string }
+                value: { type: string }
+                tags: { type: array, items: { type: string } }
+                expires_at: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Secret written directly
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SecretMeta" }
+        "202":
+          description: Change request created (approval required)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ChangeRequest" }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+
+    delete:
+      summary: Delete secret
+      description: Soft-deletes all versions of a secret by setting is_current=FALSE. Hard delete is not supported.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyName
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment]
+              properties:
+                environment: { type: string }
+      responses:
+        "200": { description: Deleted successfully }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+
+  /projects/{projectId}/secrets/{keyName}/history:
+    get:
+      summary: Get version history
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyName
+          in: path
+          required: true
+          schema: { type: string }
+        - name: environment
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: All versions (metadata only, no values)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SecretMeta" }
+
+  /projects/{projectId}/secrets/{keyName}/rollback:
+    post:
+      summary: Rollback to version
+      description: Copies the target version as a new current version. Non-destructive — all history is preserved.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyName
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment, target_version]
+              properties:
+                environment: { type: string }
+                target_version: { type: integer }
+      responses:
+        "200":
+          description: New version created from rollback
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SecretMeta" }
+
+  /projects/{projectId}/secrets/bulk-export:
+    post:
+      summary: Bulk export secrets
+      description: Exports all current non-expired secrets in the requested format. Logged as BULK_EXPORT in audit log.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment, format]
+              properties:
+                environment: { type: string }
+                format: { type: string, enum: [env, json, yaml] }
+      responses:
+        "200":
+          description: Exported secrets
+          content:
+            text/plain:
+              schema: { type: string }
+            application/json:
+              schema: { type: object }
+
+  /projects/{projectId}/change-requests:
+    get:
+      summary: List change requests
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema:
+            {
+              type: string,
+              enum: [pending, approved, rejected, applied, expired],
+            }
+      responses:
+        "200":
+          description: List of change requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ChangeRequest" }
+
+  /projects/{projectId}/change-requests/{id}/approve:
+    post:
+      summary: Approve change request
+      description: Applies the pending changes to secrets. Requester cannot approve their own request.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Approved and applied }
+        "403": { description: Forbidden or self-approval attempted }
+        "404": { description: Not found }
+        "409": { description: Already processed }
+        "410": { description: Expired }
+
+  /projects/{projectId}/change-requests/{id}/reject:
+    post:
+      summary: Reject change request
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [review_note]
+              properties:
+                review_note: { type: string }
+      responses:
+        "200": { description: Rejected }
+        "400": { description: Missing review_note }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+
+  /orgs/{orgId}/audit:
+    get:
+      summary: Query audit log
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: actor_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: event_type
+          in: query
+          schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: Paginated audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+                  total: { type: integer }
+                  page: { type: integer }
+                  limit: { type: integer }
+
+  /orgs/{orgId}/audit/verify:
+    get:
+      summary: Verify audit chain integrity
+      description: Walks the entire audit chain and verifies every chain_hash. Returns the first broken entry if tamper is detected.
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  first_broken_at: { type: integer, nullable: true }
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Cache hit/miss counters and hit rate in Prometheus exposition format.
+      security: []
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  timestamp: { type: string, format: date-time }

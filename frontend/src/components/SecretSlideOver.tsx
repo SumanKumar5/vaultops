@@ -184,16 +184,21 @@ function VersionTimeline({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-mono font-medium text-text-primary">
                   v{v.version}
                 </span>
                 {v.is_current && <Badge variant="accent">current</Badge>}
+                {v.tags?.length > 0 && (
+                  <span className="text-xs text-text-muted">
+                    {v.tags.slice(0, 2).join(", ")}
+                  </span>
+                )}
               </div>
               {!v.is_current && (
                 <button
                   onClick={() => onRollback(v.version)}
-                  className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors cursor-pointer"
+                  className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors cursor-pointer flex-shrink-0"
                 >
                   <RotateCcw size={11} />
                   Rollback
@@ -203,6 +208,11 @@ function VersionTimeline({
             <p className="text-xs text-text-muted mt-0.5">
               {formatDate(v.created_at)}
             </p>
+            {v.expires_at && (
+              <p className="text-xs text-warning mt-0.5">
+                Expires {formatDate(v.expires_at)}
+              </p>
+            )}
           </div>
         </div>
       ))}
@@ -414,7 +424,7 @@ export function SecretSlideOver({
         open={rollbackTarget !== null}
         onClose={() => setRollbackTarget(null)}
         title="Confirm Rollback"
-        size="sm"
+        size="md"
       >
         <div className="space-y-4">
           <div className="flex items-start gap-3 p-3 bg-warning/5 border border-warning/20 rounded-lg">
@@ -423,14 +433,81 @@ export function SecretSlideOver({
               className="text-warning mt-0.5 flex-shrink-0"
             />
             <p className="text-sm text-text-secondary">
-              This will create a new version (v{(secret.version ?? 0) + 1})
-              copying the value from{" "}
+              This will create{" "}
+              <span className="font-mono text-text-primary">
+                v{(secret.version ?? 0) + 1}
+              </span>{" "}
+              by copying the value from{" "}
               <span className="font-mono text-text-primary">
                 v{rollbackTarget}
               </span>
-              . The current version will be preserved in history.
+              . The current version is preserved in history.
             </p>
           </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+              Diff
+            </p>
+            <div className="bg-surface-0 border border-border rounded-lg overflow-hidden divide-y divide-border">
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="text-xs font-mono text-danger bg-danger/10 px-1.5 py-0.5 rounded">
+                  − current
+                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-mono text-text-muted">
+                    v{secret.version}
+                  </span>
+                  <span className="text-xs text-text-muted">·</span>
+                  <span className="text-xs text-text-muted">
+                    {formatDate(secret.created_at)}
+                  </span>
+                  {secret.tags?.length > 0 && (
+                    <>
+                      <span className="text-xs text-text-muted">·</span>
+                      <span className="text-xs text-text-muted">
+                        {secret.tags.join(", ")}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="text-xs font-mono text-success bg-success/10 px-1.5 py-0.5 rounded">
+                  + target
+                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-mono text-text-primary">
+                    v{rollbackTarget}
+                  </span>
+                  <span className="text-xs text-text-muted">·</span>
+                  <span className="text-xs text-text-muted">
+                    {history.find((h) => h.version === rollbackTarget)
+                      ? formatDate(
+                          history.find((h) => h.version === rollbackTarget)!
+                            .created_at,
+                        )
+                      : "—"}
+                  </span>
+                  {(() => {
+                    const t = history.find((h) => h.version === rollbackTarget);
+                    return t?.tags?.length ? (
+                      <>
+                        <span className="text-xs text-text-muted">·</span>
+                        <span className="text-xs text-text-muted">
+                          {t.tags.join(", ")}
+                        </span>
+                      </>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-text-muted">
+              Values are masked for security. Version metadata shown above.
+            </p>
+          </div>
+
           <div className="flex gap-3">
             <Button
               variant="primary"
@@ -446,6 +523,11 @@ export function SecretSlideOver({
               Cancel
             </Button>
           </div>
+          {rollbackMutation.isError && (
+            <p className="text-xs text-danger">
+              {rollbackMutation.error.message}
+            </p>
+          )}
         </div>
       </Modal>
 

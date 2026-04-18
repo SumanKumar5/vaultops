@@ -1,4 +1,8 @@
-import { resolvePermissions, Principal } from "../domain/authz/policyEngine";
+import {
+  resolvePermissions,
+  resolvePrincipalFromToken,
+  type Principal,
+} from "../domain/authz/policyEngine";
 import { pool } from "../db/client";
 
 const TEST_PROJECT_ID = "00000000-0000-0000-0000-000000000001";
@@ -6,18 +10,22 @@ const TEST_ORG_ID = "00000000-0000-0000-0000-000000000099";
 const USER_READ_ONLY: Principal = {
   id: "00000000-0000-0000-0000-000000000010",
   type: "user",
+  scopedProjects: null,
 };
 const USER_ADMIN: Principal = {
   id: "00000000-0000-0000-0000-000000000011",
   type: "user",
+  scopedProjects: null,
 };
 const SA_SCOPED: Principal = {
   id: "00000000-0000-0000-0000-000000000020",
   type: "service_account",
+  scopedProjects: null,
 };
 const CI_TOKEN: Principal = {
   id: "00000000-0000-0000-0000-000000000030",
   type: "ci_token",
+  scopedProjects: null,
 };
 const GRANTED_BY = "00000000-0000-0000-0000-000000000011";
 
@@ -232,5 +240,71 @@ describe("policyEngine", () => {
       can_delete: false,
       can_manage_policies: false,
     });
+  });
+  it("returns null principal for revoked service account token", async () => {
+    const revokedToken = "revoked-sa-token-test-xyz";
+    const revokedHash = require("crypto")
+      .createHash("sha256")
+      .update(revokedToken)
+      .digest("hex");
+
+    await pool.query(
+      `INSERT INTO service_accounts
+      (id, org_id, name, token_hash, is_ci_token, scoped_projects, revoked_at)
+     VALUES (gen_random_uuid(), $1, 'Revoked SA', $2, false, ARRAY[]::UUID[], NOW())`,
+      [TEST_ORG_ID, revokedHash],
+    );
+
+    const principal = await resolvePrincipalFromToken(revokedToken);
+    expect(principal).toBeNull();
+
+    await pool.query(`DELETE FROM service_accounts WHERE token_hash = $1`, [
+      revokedHash,
+    ]);
+  });
+
+  it("scoped_projects restricts service account to allowed projects", async () => {
+    const scopedToken = "scoped-sa-token-test-xyz";
+    const scopedHash = require("crypto")
+      .createHash("sha256")
+      .update(scopedToken)
+      .digest("hex");
+
+    const ALLOWED_PROJECT = TEST_PROJECT_ID;
+    const OTHER_PROJECT = "c0000000-0000-0000-0000-000000000099";
+
+    await pool.query(
+      `INSERT INTO service_accounts
+      (id, org_id, name, token_hash, is_ci_token, scoped_projects)
+     VALUES (gen_random_uuid(), $1, 'Scoped SA', $2, false, ARRAY[$3]::UUID[])`,
+      [TEST_ORG_ID, scopedHash, ALLOWED_PROJECT],
+    );
+
+    const principal = await resolvePrincipalFromToken(scopedToken);
+    expect(principal).not.toBeNull();
+
+    const allowedPerms = await resolvePermissions(
+      principal!,
+      ALLOWED_PROJECT,
+      "production",
+      "DB_PASSWORD",
+    );
+    const blockedPerms = await resolvePermissions(
+      principal!,
+      OTHER_PROJECT,
+      "production",
+      "DB_PASSWORD",
+    );
+
+    expect(blockedPerms).toEqual({
+      can_read: false,
+      can_write: false,
+      can_delete: false,
+      can_manage_policies: false,
+    });
+
+    await pool.query(`DELETE FROM service_accounts WHERE token_hash = $1`, [
+      scopedHash,
+    ]);
   });
 });

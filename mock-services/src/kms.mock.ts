@@ -10,9 +10,13 @@ app.use(express.json());
 
 const KMS_PORT = process.env.KMS_PORT ? parseInt(process.env.KMS_PORT) : 3001;
 
+function deriveDeterministicKey(seed: string): Buffer {
+  return crypto.createHash("sha256").update(seed).digest();
+}
+
 const MASTER_KEYS: Record<string, Buffer> = {
-  "master-key-v1": crypto.randomBytes(32),
-  "master-key-v2": crypto.randomBytes(32),
+  "master-key-v1": deriveDeterministicKey("vaultops-master-key-v1-fixed-seed"),
+  "master-key-v2": deriveDeterministicKey("vaultops-master-key-v2-fixed-seed"),
 };
 
 const CURRENT_MASTER_KEY_ID = "master-key-v1";
@@ -60,8 +64,12 @@ app.post("/decrypt-data-key", (req: Request, res: Response) => {
       .json({ error: "encrypted_key and kms_key_id are required" });
     return;
   }
-  const plaintextKey = decryptWithMasterKey(kms_key_id, encrypted_key);
-  res.json({ plaintext_key: plaintextKey.toString("base64") });
+  try {
+    const plaintextKey = decryptWithMasterKey(kms_key_id, encrypted_key);
+    res.json({ plaintext_key: plaintextKey.toString("base64") });
+  } catch (err) {
+    res.status(400).json({ error: "Failed to decrypt data key" });
+  }
 });
 
 app.post("/rotate-master-key", (_req: Request, res: Response) => {

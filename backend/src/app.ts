@@ -34,6 +34,7 @@ app.use(
     _next: NextFunction,
   ) => {
     const status = err.status ?? 500;
+    console.error("API Error:", err.message, err.stack);
     res.status(status).json({ error: err.message ?? "Internal server error" });
   },
 );
