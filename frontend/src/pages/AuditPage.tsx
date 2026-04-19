@@ -4,7 +4,6 @@ import { AuditLogTable } from "../components/AuditLogTable";
 import { Button } from "../components/ui/Button";
 
 const DEFAULT_ORG = "a0000000-0000-0000-0000-000000000001";
-const DEFAULT_PROJECT = "c0000000-0000-0000-0000-000000000001";
 
 export function AuditPage() {
   const navigate = useNavigate();
@@ -37,9 +36,10 @@ export function AuditPage() {
           <h1 className="text-lg font-semibold text-text-primary">Audit Log</h1>
           <p className="text-sm text-text-muted mt-0.5">
             Tamper-evident chain of all secret access and management events
+            across all projects
           </p>
         </div>
-        <AuditLogTable orgId={DEFAULT_ORG} projectId={DEFAULT_PROJECT} />
+        <AuditLogTable orgId={DEFAULT_ORG} />
       </div>
     </div>
   );

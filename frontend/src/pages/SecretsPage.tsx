@@ -230,6 +230,17 @@ export function SecretsPage() {
         projectId={projectId}
         environment={environment}
         editing={editingSecret}
+        onApprovalCreated={() => {
+          setWriteModalOpen(false);
+          setEditingSecret(null);
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("tab", "approvals");
+            next.set("project", projectId);
+            next.set("env", environment);
+            return next;
+          });
+        }}
       />
 
       <ExportModal

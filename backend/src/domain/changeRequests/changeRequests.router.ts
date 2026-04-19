@@ -15,8 +15,8 @@ router.get(
   "/projects/:projectId/change-requests",
   authorize("can_manage_policies", (req) => ({
     projectId: req.params.projectId,
-    environment: "*",
-    keyName: "*",
+    environment: "production",
+    keyName: "PLACEHOLDER",
   })),
   async (req: AuthRequest, res: Response): Promise<void> => {
     const { status } = req.query;
@@ -32,8 +32,8 @@ router.post(
   "/projects/:projectId/change-requests/:id/approve",
   authorize("can_manage_policies", (req) => ({
     projectId: req.params.projectId,
-    environment: "*",
-    keyName: "*",
+    environment: "production",
+    keyName: "PLACEHOLDER",
   })),
   async (req: AuthRequest, res: Response): Promise<void> => {
     const data = await approveChangeRequest(
@@ -50,8 +50,8 @@ router.post(
   "/projects/:projectId/change-requests/:id/reject",
   authorize("can_manage_policies", (req) => ({
     projectId: req.params.projectId,
-    environment: "*",
-    keyName: "*",
+    environment: "production",
+    keyName: "PLACEHOLDER",
   })),
   async (req: AuthRequest, res: Response): Promise<void> => {
     const schema = z.object({ review_note: z.string().min(1) });

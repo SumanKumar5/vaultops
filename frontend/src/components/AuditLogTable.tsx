@@ -23,14 +23,30 @@ interface AuditLogTableProps {
 function eventVariant(
   type: string,
 ): "success" | "danger" | "warning" | "info" | "default" {
-  if (type.includes("READ") || type.includes("EXPORT")) return "info";
-  if (type.includes("WRITTEN") || type.includes("ROLLBACK"))
-    return "accent" as "default";
+  if (type.includes("READ")) return "info";
+  if (type.includes("EXPORT")) return "info";
+  if (type.includes("WRITTEN")) return "success";
+  if (type.includes("ROLLBACK")) return "accent" as "default";
   if (type.includes("DELETED")) return "danger";
   if (type.includes("GRANTED") || type.includes("APPROVED")) return "success";
   if (type.includes("DENIED") || type.includes("REJECTED")) return "danger";
   if (type.includes("REQUESTED")) return "warning";
+  if (type.includes("POLICY")) return "warning";
   return "default";
+}
+
+function eventColor(type: string): string {
+  if (type.includes("READ") || type.includes("EXPORT"))
+    return "text-info bg-info/10 border-info/20";
+  if (type.includes("WRITTEN") || type.includes("ROLLBACK"))
+    return "text-success bg-success/10 border-success/20";
+  if (type.includes("DELETED") || type.includes("DENIED"))
+    return "text-danger bg-danger/10 border-danger/20";
+  if (type.includes("GRANTED"))
+    return "text-success bg-success/10 border-success/20";
+  if (type.includes("REQUESTED") || type.includes("POLICY"))
+    return "text-warning bg-warning/10 border-warning/20";
+  return "text-text-secondary bg-surface-3 border-border";
 }
 
 function VerifyBanner({ orgId }: { orgId: string }) {
@@ -40,6 +56,8 @@ function VerifyBanner({ orgId }: { orgId: string }) {
     queryKey: ["audit-verify", orgId],
     queryFn: () => auditApi.verify(orgId),
     enabled: false,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   async function handleVerify() {
@@ -48,7 +66,7 @@ function VerifyBanner({ orgId }: { orgId: string }) {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 flex-wrap">
       <Button
         variant="secondary"
         size="sm"
@@ -115,26 +133,24 @@ export function AuditLogTable({ orgId, projectId }: AuditLogTableProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <VerifyBanner orgId={orgId} />
-        <div className="flex items-center gap-3">
-          <Input
-            placeholder="Filter by event type..."
-            value={eventTypeFilter}
-            onChange={(e) => {
-              setEventTypeFilter(e.target.value.toUpperCase());
-              setPage(1);
-            }}
-            icon={<Filter size={13} />}
-            className="w-52 text-xs"
-          />
-        </div>
+        <Input
+          placeholder="Filter by event type e.g. SECRET_READ"
+          value={eventTypeFilter}
+          onChange={(e) => {
+            setEventTypeFilter(e.target.value.toUpperCase());
+            setPage(1);
+          }}
+          icon={<Filter size={13} />}
+          className="w-64 text-xs"
+        />
       </div>
 
       <div className="bg-surface-1 border border-border rounded-xl overflow-hidden">
-        <div className="grid grid-cols-[140px_120px_1fr_140px] gap-0 border-b border-border bg-surface-2 px-5 py-2.5">
-          {["Event", "Actor", "Resource / Metadata", "Time"].map((h) => (
+        <div className="grid grid-cols-[180px_140px_1fr_160px] border-b border-border bg-surface-2 px-5 py-3">
+          {["Event", "Actor", "Resource / Key", "Time"].map((h) => (
             <span
               key={h}
-              className="text-xs font-medium text-text-muted uppercase tracking-wider"
+              className="text-xs font-semibold text-text-muted uppercase tracking-wider"
             >
               {h}
             </span>
@@ -143,66 +159,87 @@ export function AuditLogTable({ orgId, projectId }: AuditLogTableProps) {
 
         <div className="divide-y divide-border-subtle">
           {isLoading ? (
-            Array.from({ length: 8 }).map((_, i) => (
+            Array.from({ length: 10 }).map((_, i) => (
               <div
                 key={i}
-                className="grid grid-cols-[140px_120px_1fr_140px] gap-0 px-5 py-3.5"
+                className="grid grid-cols-[180px_140px_1fr_160px] px-5 py-4"
               >
                 {Array.from({ length: 4 }).map((_, j) => (
                   <div
                     key={j}
-                    className="h-4 bg-surface-3 rounded animate-pulse mr-4"
+                    className="h-4 bg-surface-3 rounded animate-pulse mr-6"
                   />
                 ))}
               </div>
             ))
           ) : data?.data.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <Activity size={24} className="text-text-muted" />
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <Activity size={28} className="text-text-muted" />
               <p className="text-sm text-text-muted">No audit events found</p>
+              {eventTypeFilter && (
+                <button
+                  onClick={() => setEventTypeFilter("")}
+                  className="text-xs text-accent hover:underline cursor-pointer"
+                >
+                  Clear filter
+                </button>
+              )}
             </div>
           ) : (
             data?.data.map((event: AuditEvent) => (
               <div
                 key={event.id}
-                className="grid grid-cols-[140px_120px_1fr_140px] gap-0 px-5 py-3 hover:bg-surface-2 transition-colors group"
+                className="grid grid-cols-[180px_140px_1fr_160px] px-5 py-3.5 hover:bg-surface-2 transition-colors"
               >
                 <div className="flex items-center">
-                  <Badge
-                    variant={eventVariant(event.event_type)}
-                    className="text-xs font-mono"
+                  <span
+                    className={cn(
+                      "inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-medium border",
+                      eventColor(event.event_type),
+                    )}
                   >
                     {event.event_type.replace(/_/g, " ")}
-                  </Badge>
+                  </span>
                 </div>
+
                 <div className="flex items-center">
                   <div>
-                    <p className="text-xs text-text-primary font-mono truncate">
-                      {event.actor_id?.slice(0, 8) ?? "system"}
+                    <p className="text-xs font-mono text-text-primary">
+                      {event.actor_id
+                        ? event.actor_id.slice(0, 8) + "..."
+                        : "system"}
                     </p>
-                    <p className="text-xs text-text-muted">
+                    <p className="text-xs text-text-muted mt-0.5">
                       {event.actor_type}
                     </p>
                   </div>
                 </div>
+
                 <div className="flex items-center min-w-0 pr-4">
                   <div className="min-w-0">
                     {event.metadata?.key_name ? (
-                      <p className="text-xs font-mono text-text-primary truncate">
+                      <p className="text-xs font-mono font-medium text-text-primary truncate">
                         {String(event.metadata.key_name)}
                       </p>
                     ) : (
-                      <p className="text-xs text-text-muted font-mono">
-                        {event.resource_id?.slice(0, 12) ?? "—"}
+                      <p className="text-xs font-mono text-text-muted truncate">
+                        {event.resource_id
+                          ? event.resource_id.slice(0, 16) + "..."
+                          : "—"}
                       </p>
                     )}
                     {event.metadata?.environment ? (
-                      <p className="text-xs text-text-muted">
+                      <p className="text-xs text-text-muted mt-0.5">
                         {String(event.metadata.environment)}
+                      </p>
+                    ) : event.resource_type ? (
+                      <p className="text-xs text-text-muted mt-0.5">
+                        {event.resource_type}
                       </p>
                     ) : null}
                   </div>
                 </div>
+
                 <div className="flex items-center">
                   <p className="text-xs text-text-muted">
                     {formatDate(event.occurred_at)}
@@ -216,8 +253,8 @@ export function AuditLogTable({ orgId, projectId }: AuditLogTableProps) {
         {data && totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-surface-2">
             <p className="text-xs text-text-muted">
-              {(page - 1) * limit + 1}–{Math.min(page * limit, data.total)} of{" "}
-              {data.total} events
+              Showing {(page - 1) * limit + 1}–
+              {Math.min(page * limit, data.total)} of {data.total} events
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -227,7 +264,7 @@ export function AuditLogTable({ orgId, projectId }: AuditLogTableProps) {
                 disabled={page === 1}
                 onClick={() => setPage((p) => p - 1)}
               />
-              <span className="text-xs text-text-secondary">
+              <span className="text-xs text-text-secondary px-2">
                 Page {page} of {totalPages}
               </span>
               <Button

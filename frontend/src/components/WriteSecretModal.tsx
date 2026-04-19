@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, Info } from "lucide-react";
+import { Save, Info, CheckCircle } from "lucide-react";
 import { secretsApi, type SecretMeta } from "../api/secrets";
 import { Modal } from "./ui/Modal";
 import { Input } from "./ui/Input";
@@ -27,6 +28,7 @@ interface WriteSecretModalProps {
   projectId: string;
   environment: string;
   editing?: SecretMeta | null;
+  onApprovalCreated?: () => void;
 }
 
 export function WriteSecretModal({
@@ -35,9 +37,11 @@ export function WriteSecretModal({
   projectId,
   environment,
   editing,
+  onApprovalCreated,
 }: WriteSecretModalProps) {
   const queryClient = useQueryClient();
   const isProduction = environment === "production";
+  const [approvalCreated, setApprovalCreated] = useState(false);
 
   const {
     register,
@@ -46,7 +50,9 @@ export function WriteSecretModal({
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: editing ? { key_name: editing.key_name } : {},
+    values: editing
+      ? { key_name: editing.key_name, value: "", tags: "", expires_at: "" }
+      : undefined,
   });
 
   const mutation = useMutation({
@@ -70,19 +76,73 @@ export function WriteSecretModal({
         queryKey: ["change-requests", projectId],
       });
       reset();
-      onClose();
       if (status === 202) {
-        alert(
-          "Approval request created. A reviewer must approve this change before it takes effect.",
-        );
+        setApprovalCreated(true);
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["change-requests", projectId],
+          });
+          onApprovalCreated?.();
+        }, 300);
+      } else {
+        onClose();
       }
     },
   });
 
+  function handleClose() {
+    setApprovalCreated(false);
+    reset();
+    onClose();
+  }
+
+  if (approvalCreated) {
+    return (
+      <Modal
+        open={open}
+        onClose={handleClose}
+        title="Change Request Created"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
+              <CheckCircle size={24} className="text-success" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">
+                Approval request created
+              </p>
+              <p className="text-xs text-text-muted mt-1">
+                A reviewer must approve this change before it takes effect in
+                production.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="primary"
+              className="flex-1 justify-center"
+              onClick={() => {
+                onApprovalCreated?.();
+                handleClose();
+              }}
+            >
+              View Pending Approvals
+            </Button>
+            <Button variant="ghost" onClick={handleClose}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title={editing ? `Edit ${editing.key_name}` : "New Secret"}
       size="md"
     >
@@ -148,7 +208,7 @@ export function WriteSecretModal({
             </Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" type="button" onClick={onClose}>
+            <Button variant="ghost" type="button" onClick={handleClose}>
               Cancel
             </Button>
             <Button
